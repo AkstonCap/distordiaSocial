@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { confirm } from 'nexus-module';
 import { clearComposeContext } from 'actions/actionCreators';
-import { createPost } from 'actions/createAsset';
+import { createPost, createArticle } from 'actions/createAsset';
 import { formatAddress } from '../utils/verification';
+import {
+  getAssetCount,
+  MAX_ARTICLE_CHARS,
+  MAX_POST_CHARS,
+} from '../utils/articleUtils';
 import {
   ComposeCard,
   ComposeTextarea,
@@ -15,59 +20,114 @@ import {
   QuotedPost,
   QuotedAuthor,
   QuotedText,
+  ModeToggle,
+  ModeButton,
+  TitleInput,
+  CostIndicator,
+  ProgressText,
 } from '../components/styles';
-
-const MAX_CHARS = 512;
 
 export default function ComposePost({ onPostCreated }) {
   const dispatch = useDispatch();
   const replyTo = useSelector((state) => state.ui.replyTo);
   const quote = useSelector((state) => state.ui.quote);
 
+  const [mode, setMode] = useState('post'); // 'post' or 'article'
   const [text, setText] = useState('');
+  const [title, setTitle] = useState('');
   const [cw, setCw] = useState('');
   const [showCW, setShowCW] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [progress, setProgress] = useState(null); // { created, total }
 
+  const isArticleMode = mode === 'article';
+  const maxChars = isArticleMode ? MAX_ARTICLE_CHARS : MAX_POST_CHARS;
   const charCount = text.length;
-  const isWarning = charCount > 450;
-  const isError = charCount > MAX_CHARS;
+  const warningThreshold = isArticleMode ? MAX_ARTICLE_CHARS - 200 : 450;
+  const isWarning = charCount > warningThreshold;
+  const isError = charCount > maxChars;
   const hasContext = !!replyTo || !!quote;
   const contextPost = replyTo || quote;
+  const assetCount = isArticleMode ? getAssetCount(charCount) : 1;
+
+  const resetForm = () => {
+    setText('');
+    setTitle('');
+    setCw('');
+    setShowCW(false);
+    setProgress(null);
+    dispatch(clearComposeContext());
+  };
 
   const handlePost = async () => {
     if (!text.trim() || isError || posting) return;
 
-    const confirmed = await confirm({
-      question: 'Publish this post to the Nexus blockchain?',
-      note: 'This will create an on-chain asset. This action costs 1 NXS.',
-    });
+    if (isArticleMode) {
+      if (!title.trim()) return;
 
-    if (!confirmed) return;
+      const confirmed = await confirm({
+        question: `Publish this article to the Nexus blockchain?`,
+        note: `This will create ${assetCount} on-chain asset${assetCount > 1 ? 's' : ''}. Total cost: ${assetCount} NXS.`,
+      });
 
-    setPosting(true);
+      if (!confirmed) return;
 
-    try {
-      await createPost(
-        {
-          text: text.trim(),
-          replyTo: replyTo?.address || '',
-          quote: quote?.address || '',
-          cw: cw.trim(),
-        },
-        () => {
-          setText('');
-          setCw('');
-          setShowCW(false);
-          dispatch(clearComposeContext());
-          if (onPostCreated) {
-            setTimeout(onPostCreated, 2000);
-          }
-        },
-        () => {}
-      );
-    } finally {
-      setPosting(false);
+      setPosting(true);
+      setProgress({ created: 0, total: assetCount });
+
+      try {
+        await createArticle(
+          {
+            title: title.trim(),
+            text: text.trim(),
+            replyTo: replyTo?.address || '',
+            quote: quote?.address || '',
+            cw: cw.trim(),
+          },
+          (created, total) => {
+            setProgress({ created, total });
+          },
+          () => {
+            resetForm();
+            if (onPostCreated) {
+              setTimeout(onPostCreated, 2000);
+            }
+          },
+          () => {}
+        );
+      } finally {
+        setPosting(false);
+        setProgress(null);
+      }
+    } else {
+      const confirmed = await confirm({
+        question: 'Publish this post to the Nexus blockchain?',
+        note: 'This will create an on-chain asset. This action costs 1 NXS.',
+      });
+
+      if (!confirmed) return;
+
+      setPosting(true);
+
+      try {
+        await createPost(
+          {
+            text: text.trim(),
+            replyTo: replyTo?.address || '',
+            quote: quote?.address || '',
+            cw: cw.trim(),
+          },
+          () => {
+            resetForm();
+            if (onPostCreated) {
+              setTimeout(onPostCreated, 2000);
+            }
+          },
+          () => {}
+        );
+      } finally {
+        setPosting(false);
+      }
     }
   };
 
@@ -75,8 +135,38 @@ export default function ComposePost({ onPostCreated }) {
     dispatch(clearComposeContext());
   };
 
+  const handleModeSwitch = (newMode) => {
+    setMode(newMode);
+    // Reset text if switching modes to avoid confusion
+    if (newMode === 'post' && text.length > MAX_POST_CHARS) {
+      setText(text.slice(0, MAX_POST_CHARS));
+    }
+  };
+
   return (
     <ComposeCard>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <ModeToggle>
+          <ModeButton
+            active={mode === 'post' ? 1 : 0}
+            onClick={() => handleModeSwitch('post')}
+          >
+            Post
+          </ModeButton>
+          <ModeButton
+            active={mode === 'article' ? 1 : 0}
+            onClick={() => handleModeSwitch('article')}
+          >
+            Article
+          </ModeButton>
+        </ModeToggle>
+        {isArticleMode && assetCount > 0 && (
+          <CostIndicator>
+            {assetCount} asset{assetCount > 1 ? 's' : ''} ({assetCount} NXS)
+          </CostIndicator>
+        )}
+      </div>
+
       {hasContext && contextPost && (
         <QuotedPost>
           <QuotedAuthor>
@@ -109,12 +199,32 @@ export default function ComposePost({ onPostCreated }) {
         />
       )}
 
+      {isArticleMode && (
+        <TitleInput
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Article title..."
+          maxLength={64}
+        />
+      )}
+
       <ComposeTextarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="What's on your mind? Post to the blockchain..."
-        maxLength={MAX_CHARS + 50}
+        placeholder={
+          isArticleMode
+            ? 'Write your article...'
+            : 'What\'s on your mind? Post to the blockchain...'
+        }
+        maxLength={maxChars + 50}
+        style={isArticleMode ? { minHeight: 200 } : undefined}
       />
+
+      {progress && (
+        <ProgressText>
+          Creating asset {progress.created} of {progress.total}...
+        </ProgressText>
+      )}
 
       <ComposeFooter>
         <ComposeActions>
@@ -125,14 +235,23 @@ export default function ComposePost({ onPostCreated }) {
             {showCW ? 'Hide CW' : 'CW'}
           </SmallButton>
           <CharCount warning={isWarning ? 1 : 0} error={isError ? 1 : 0}>
-            {charCount}/{MAX_CHARS}
+            {charCount}/{maxChars}
           </CharCount>
         </ComposeActions>
         <PrimaryButton
           onClick={handlePost}
-          disabled={!text.trim() || isError || posting}
+          disabled={
+            !text.trim() ||
+            isError ||
+            posting ||
+            (isArticleMode && !title.trim())
+          }
         >
-          {posting ? 'Publishing...' : 'Post to Nexus'}
+          {posting
+            ? 'Publishing...'
+            : isArticleMode
+              ? 'Publish Article'
+              : 'Post to Nexus'}
         </PrimaryButton>
       </ComposeFooter>
     </ComposeCard>

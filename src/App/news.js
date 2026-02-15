@@ -8,6 +8,7 @@ import {
   formatAddress,
   formatTime,
 } from '../utils/verification';
+import { isArticle, reassembleArticle } from '../utils/articleUtils';
 import {
   PageLayout,
   SingleColRow,
@@ -28,6 +29,7 @@ import {
   BadgeOfficial,
   BadgeQuote,
   BadgeReply,
+  BadgeArticle,
   TierBadgeL1,
   TierBadgeL2,
   TierBadgeL3,
@@ -42,6 +44,11 @@ import {
   EmptyState,
   ErrorMessage,
   ContentWarning,
+  ArticleCard,
+  ArticleTitle,
+  ArticlePreview,
+  ReadMoreLink,
+  ArticleFullText,
   ModalOverlay,
   ModalContent,
   ModalHeader,
@@ -63,6 +70,95 @@ function TierBadge({ tier }) {
     default:
       return null;
   }
+}
+
+function ArticleItem({
+  post,
+  verifiedMap,
+  onViewAsset,
+  onQuote,
+  onReply,
+  onReadArticle,
+}) {
+  const [cwRevealed, setCwRevealed] = useState(false);
+
+  const namespace = post["Creator's namespace"] || post.name?.split(':')[0] || '';
+  const displayName =
+    namespace && namespace !== '*' ? `@${namespace}` : formatAddress(post.owner, 16);
+  const owner = post.owner || '';
+  const text = post.text || '';
+  const title = post.title || 'Untitled Article';
+  const created = post.created;
+  const isOfficial = post['distordia-status'] === 'official';
+  const hasCW = !!post.cw;
+  const hasMore = !!(post.next && post.next !== '');
+  const tier = getTierForGenesis(owner, verifiedMap);
+  const previewText = text.length > 200 ? text.slice(0, 200) + '...' : text;
+
+  return (
+    <ArticleCard onClick={() => onReadArticle(post)}>
+      <PostHeader>
+        <PostAuthor>
+          <PostNamespace>{displayName}</PostNamespace>
+          <PostOwner>{formatAddress(owner, 16)}</PostOwner>
+        </PostAuthor>
+        <BadgeRow>
+          {tier && <TierBadge tier={tier} />}
+          <BadgeArticle>Article</BadgeArticle>
+          {isOfficial && <BadgeOfficial>Official</BadgeOfficial>}
+        </BadgeRow>
+      </PostHeader>
+
+      {hasCW && !cwRevealed ? (
+        <ContentWarning onClick={(e) => { e.stopPropagation(); setCwRevealed(true); }}>
+          CW: {post.cw} (click to reveal)
+        </ContentWarning>
+      ) : (
+        <>
+          <ArticleTitle>{title}</ArticleTitle>
+          <ArticlePreview>{previewText}</ArticlePreview>
+          {hasMore && (
+            <ReadMoreLink onClick={(e) => { e.stopPropagation(); onReadArticle(post); }}>
+              Read full article...
+            </ReadMoreLink>
+          )}
+        </>
+      )}
+
+      <PostFooter>
+        <PostMeta>
+          <span>{formatTime(created)}</span>
+          {post.tags && <span>#{post.tags.split(',')[0]}</span>}
+        </PostMeta>
+        <PostActions>
+          <SmallButton
+            onClick={(e) => {
+              e.stopPropagation();
+              onReply(post);
+            }}
+          >
+            Reply
+          </SmallButton>
+          <SmallButton
+            onClick={(e) => {
+              e.stopPropagation();
+              onQuote(post);
+            }}
+          >
+            Quote
+          </SmallButton>
+          <SmallButton
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewAsset(post.address);
+            }}
+          >
+            On-chain
+          </SmallButton>
+        </PostActions>
+      </PostFooter>
+    </ArticleCard>
+  );
 }
 
 function PostItem({
@@ -194,13 +290,18 @@ export default function NewsFeed() {
   const [viewingAsset, setViewingAsset] = useState(null);
   const [assetData, setAssetData] = useState(null);
 
+  // Article reader modal state
+  const [readingArticle, setReadingArticle] = useState(null);
+  const [articleFullText, setArticleFullText] = useState(null);
+  const [articleLoading, setArticleLoading] = useState(false);
+
   const fetchPosts = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Fetch posts and quotes in parallel
-      const [postResults, quoteResults] = await Promise.all([
+      // Fetch posts, quotes, and articles in parallel
+      const [postResults, quoteResults, articleResults] = await Promise.all([
         apiCall('register/list/assets:asset', {
           where:
             "results.distordia-type=distordia-post AND results.distordia-status=official",
@@ -209,9 +310,17 @@ export default function NewsFeed() {
           where:
             "results.distordia-type=distordia-quote AND results.distordia-status=official",
         }).catch(() => []),
+        apiCall('register/list/assets:asset', {
+          where:
+            "results.distordia-type=distordia-article AND results.distordia-status=official",
+        }).catch(() => []),
       ]);
 
-      const allPosts = [...(postResults || []), ...(quoteResults || [])];
+      const allPosts = [
+        ...(postResults || []),
+        ...(quoteResults || []),
+        ...(articleResults || []),
+      ];
       allPosts.sort((a, b) => (b.created || 0) - (a.created || 0));
       setPosts(allPosts);
 
@@ -265,7 +374,7 @@ export default function NewsFeed() {
     dispatch(updateInput(e.target.value));
   };
 
-  // Filter posts
+  // Filter posts (exclude article chunks which are internal)
   const filteredPosts = posts.filter((post) => {
     const namespace = post["Creator's namespace"] || '';
 
@@ -288,9 +397,10 @@ export default function NewsFeed() {
 
     if (inputValue && filter !== 'namespace') {
       const text = (post.text || post.Text || '').toLowerCase();
+      const title = (post.title || '').toLowerCase();
       const ns = namespace.toLowerCase();
       const q = inputValue.toLowerCase();
-      if (!text.includes(q) && !ns.includes(q)) {
+      if (!text.includes(q) && !ns.includes(q) && !title.includes(q)) {
         return false;
       }
     }
@@ -307,6 +417,21 @@ export default function NewsFeed() {
       setAssetData(result);
     } catch (err) {
       setAssetData({ error: err?.message || 'Failed to load asset' });
+    }
+  };
+
+  // Read full article by reassembling chunks
+  const readArticle = async (post) => {
+    setReadingArticle(post);
+    setArticleFullText(null);
+    setArticleLoading(true);
+    try {
+      const fullText = await reassembleArticle(post);
+      setArticleFullText(fullText);
+    } catch {
+      setArticleFullText(post.text || '');
+    } finally {
+      setArticleLoading(false);
     }
   };
 
@@ -379,18 +504,63 @@ export default function NewsFeed() {
       )}
 
       {!loading &&
-        filteredPosts.map((post) => (
-          <PostItem
-            key={post.address}
-            post={post}
-            verifiedMap={verifiedMap}
-            quotedPostsCache={quotedPostsCache}
-            onViewAsset={viewAsset}
-            onQuote={handleQuote}
-            onReply={handleReply}
-          />
-        ))}
+        filteredPosts.map((post) =>
+          isArticle(post) ? (
+            <ArticleItem
+              key={post.address}
+              post={post}
+              verifiedMap={verifiedMap}
+              onViewAsset={viewAsset}
+              onQuote={handleQuote}
+              onReply={handleReply}
+              onReadArticle={readArticle}
+            />
+          ) : (
+            <PostItem
+              key={post.address}
+              post={post}
+              verifiedMap={verifiedMap}
+              quotedPostsCache={quotedPostsCache}
+              onViewAsset={viewAsset}
+              onQuote={handleQuote}
+              onReply={handleReply}
+            />
+          )
+        )}
 
+      {/* Article Reader Modal */}
+      {readingArticle && (
+        <ModalOverlay onClick={() => setReadingArticle(null)}>
+          <ModalContent onClick={(e) => e.stopPropagation()}>
+            <ModalHeader>
+              <h3>{readingArticle.title || 'Article'}</h3>
+              <ModalClose onClick={() => setReadingArticle(null)}>
+                &times;
+              </ModalClose>
+            </ModalHeader>
+            <ModalBody>
+              <div style={{ marginBottom: 12, fontSize: 12, opacity: 0.6 }}>
+                By{' '}
+                <span style={{ color: '#00d4ff' }}>
+                  @{readingArticle["Creator's namespace"] ||
+                    formatAddress(readingArticle.owner, 12)}
+                </span>
+                {' '}· {formatTime(readingArticle.created)}
+              </div>
+              {articleLoading ? (
+                <LoadingContainer>
+                  <Spinner />
+                  <p>Loading article chunks...</p>
+                </LoadingContainer>
+              ) : (
+                <ArticleFullText>{articleFullText}</ArticleFullText>
+              )}
+            </ModalBody>
+          </ModalContent>
+        </ModalOverlay>
+      )}
+
+      {/* On-chain Asset Modal */}
       {viewingAsset && (
         <ModalOverlay onClick={() => setViewingAsset(null)}>
           <ModalContent onClick={(e) => e.stopPropagation()}>
