@@ -8,6 +8,7 @@ import {
   formatAddress,
   formatTime,
 } from '../utils/verification';
+import { isArticle, isArticleChunk, reassembleArticle } from '../utils/articleUtils';
 import {
   PageLayout,
   SingleColRow,
@@ -27,6 +28,7 @@ import {
   PostActions,
   BadgeRow,
   BadgeOfficial,
+  BadgeArticle,
   TierBadgeL1,
   TierBadgeL2,
   TierBadgeL3,
@@ -35,6 +37,11 @@ import {
   Spinner,
   EmptyState,
   ErrorMessage,
+  ArticleCard,
+  ArticleTitle,
+  ArticlePreview,
+  ReadMoreLink,
+  ArticleFullText,
   ModalOverlay,
   ModalContent,
   ModalHeader,
@@ -70,6 +77,11 @@ export default function Profile() {
   const [viewingAsset, setViewingAsset] = useState(null);
   const [assetData, setAssetData] = useState(null);
 
+  // Article reader modal state
+  const [readingArticle, setReadingArticle] = useState(null);
+  const [articleFullText, setArticleFullText] = useState(null);
+  const [articleLoading, setArticleLoading] = useState(false);
+
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -84,8 +96,12 @@ export default function Profile() {
       setVerifiedMap(verified);
 
       if (assets && Array.isArray(assets)) {
+        // Show posts and articles, but filter out article chunks
         const posts = assets.filter(
-          (item) => item['distordia-type'] === 'distordia-post'
+          (item) =>
+            (item['distordia-type'] === 'distordia-post' ||
+              item['distordia-type'] === 'distordia-article') &&
+            !isArticleChunk(item)
         );
         posts.sort((a, b) => (b.created || 0) - (a.created || 0));
         setMyPosts(posts);
@@ -129,6 +145,20 @@ export default function Profile() {
       setAssetData(result);
     } catch (err) {
       setAssetData({ error: err?.message || 'Failed to load asset' });
+    }
+  };
+
+  const readArticle = async (post) => {
+    setReadingArticle(post);
+    setArticleFullText(null);
+    setArticleLoading(true);
+    try {
+      const fullText = await reassembleArticle(post);
+      setArticleFullText(fullText);
+    } catch {
+      setArticleFullText(post.text || '');
+    } finally {
+      setArticleLoading(false);
     }
   };
 
@@ -188,9 +218,59 @@ export default function Profile() {
         myPosts.map((post) => {
           const namespace = post["Creator's namespace"] || '';
           const owner = post.owner || '';
-          const text = post.text || post.Text || '';
           const postTier = getTierForGenesis(owner, verifiedMap);
 
+          if (isArticle(post)) {
+            const text = post.text || '';
+            const title = post.title || 'Untitled Article';
+            const hasMore = !!(post.next && post.next !== '');
+            const previewText = text.length > 200 ? text.slice(0, 200) + '...' : text;
+
+            return (
+              <ArticleCard key={post.address} onClick={() => readArticle(post)}>
+                <PostHeader>
+                  <PostAuthor>
+                    <PostNamespace>
+                      @{namespace || formatAddress(owner, 12)}
+                    </PostNamespace>
+                    <PostOwner>{formatAddress(owner, 16)}</PostOwner>
+                  </PostAuthor>
+                  <BadgeRow>
+                    {postTier && <TierBadge tier={postTier} />}
+                    <BadgeArticle>Article</BadgeArticle>
+                    {post['distordia-status'] === 'official' && (
+                      <BadgeOfficial>Official</BadgeOfficial>
+                    )}
+                  </BadgeRow>
+                </PostHeader>
+                <ArticleTitle>{title}</ArticleTitle>
+                <ArticlePreview>{previewText}</ArticlePreview>
+                {hasMore && (
+                  <ReadMoreLink onClick={(e) => { e.stopPropagation(); readArticle(post); }}>
+                    Read full article...
+                  </ReadMoreLink>
+                )}
+                <PostFooter>
+                  <PostMeta>
+                    <span>{formatTime(post.created)}</span>
+                    <span>{formatAddress(post.address, 12)}</span>
+                  </PostMeta>
+                  <PostActions>
+                    <SmallButton
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        viewAsset(post.address);
+                      }}
+                    >
+                      On-chain
+                    </SmallButton>
+                  </PostActions>
+                </PostFooter>
+              </ArticleCard>
+            );
+          }
+
+          const text = post.text || post.Text || '';
           return (
             <PostCard key={post.address} onClick={() => viewAsset(post.address)}>
               <PostHeader>
@@ -227,6 +307,38 @@ export default function Profile() {
             </PostCard>
           );
         })}
+
+      {/* Article Reader Modal */}
+      {readingArticle && (
+        <ModalOverlay onClick={() => setReadingArticle(null)}>
+          <ModalContent onClick={(e) => e.stopPropagation()}>
+            <ModalHeader>
+              <h3>{readingArticle.title || 'Article'}</h3>
+              <ModalClose onClick={() => setReadingArticle(null)}>
+                &times;
+              </ModalClose>
+            </ModalHeader>
+            <ModalBody>
+              <div style={{ marginBottom: 12, fontSize: 12, opacity: 0.6 }}>
+                By{' '}
+                <span style={{ color: '#00d4ff' }}>
+                  @{readingArticle["Creator's namespace"] ||
+                    formatAddress(readingArticle.owner, 12)}
+                </span>
+                {' '}· {formatTime(readingArticle.created)}
+              </div>
+              {articleLoading ? (
+                <LoadingContainer>
+                  <Spinner />
+                  <p>Loading article chunks...</p>
+                </LoadingContainer>
+              ) : (
+                <ArticleFullText>{articleFullText}</ArticleFullText>
+              )}
+            </ModalBody>
+          </ModalContent>
+        </ModalOverlay>
+      )}
 
       {viewingAsset && (
         <ModalOverlay onClick={() => setViewingAsset(null)}>

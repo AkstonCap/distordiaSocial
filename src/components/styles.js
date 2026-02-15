@@ -557,6 +557,122 @@ export const ProfileStat = styled.div({
   },
 });
 
+// ============================================================================
+// Article Components
+// ============================================================================
+
+export const ArticleCard = styled.div({
+  background: 'rgba(255,255,255,0.04)',
+  border: '1px solid rgba(0, 212, 255, 0.15)',
+  borderRadius: 12,
+  padding: '16px 20px',
+  transition: 'box-shadow 0.2s ease, transform 0.15s ease',
+  cursor: 'pointer',
+  '&:hover': {
+    boxShadow: '0 4px 16px rgba(0, 212, 255, 0.15)',
+    transform: 'translateY(-1px)',
+  },
+});
+
+export const ArticleTitle = styled.h3({
+  margin: '0 0 8px 0',
+  fontSize: 17,
+  fontWeight: 700,
+  lineHeight: 1.3,
+  color: '#fff',
+});
+
+export const ArticlePreview = styled.div({
+  fontSize: 13,
+  lineHeight: 1.6,
+  opacity: 0.75,
+  whiteSpace: 'pre-wrap',
+  wordWrap: 'break-word',
+  marginBottom: 10,
+});
+
+export const ReadMoreLink = styled.span({
+  color: '#00d4ff',
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  '&:hover': {
+    textDecoration: 'underline',
+  },
+});
+
+export const BadgeArticle = styled.span({
+  ...baseBadgeStyles,
+  background: 'linear-gradient(135deg, #ef4568 0%, #f0aa21 100%)',
+  color: '#fff',
+});
+
+export const ArticleFullText = styled.div({
+  fontSize: 14,
+  lineHeight: 1.75,
+  whiteSpace: 'pre-wrap',
+  wordWrap: 'break-word',
+});
+
+export const ModeToggle = styled.div({
+  display: 'flex',
+  gap: 0,
+  borderRadius: 6,
+  overflow: 'hidden',
+  border: '1px solid rgba(255,255,255,0.1)',
+});
+
+export const ModeButton = styled.button(({ active }) => ({
+  padding: '4px 14px',
+  background: active ? '#00d4ff' : 'rgba(255,255,255,0.04)',
+  border: 'none',
+  color: active ? '#fff' : 'inherit',
+  fontSize: 12,
+  fontWeight: active ? 600 : 400,
+  cursor: 'pointer',
+  transition: 'all 0.15s ease',
+  opacity: active ? 1 : 0.6,
+  '&:hover': {
+    opacity: 1,
+  },
+}));
+
+export const TitleInput = styled.input({
+  width: '100%',
+  padding: '10px 12px',
+  background: 'rgba(0,0,0,0.3)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 8,
+  color: 'inherit',
+  fontSize: 15,
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  outline: 'none',
+  marginBottom: 8,
+  boxSizing: 'border-box',
+  transition: 'border-color 0.2s ease',
+  '&:focus': {
+    borderColor: '#00d4ff',
+  },
+  '&::placeholder': {
+    opacity: 0.4,
+    fontWeight: 400,
+  },
+});
+
+export const CostIndicator = styled.span({
+  fontSize: 11,
+  opacity: 0.5,
+  fontStyle: 'italic',
+});
+
+export const ProgressText = styled.div({
+  fontSize: 13,
+  textAlign: 'center',
+  padding: '8px 0',
+  color: '#00d4ff',
+});
+
 // Legacy export
 export const CatalogueTable = styled.table({
   width: '100%',
