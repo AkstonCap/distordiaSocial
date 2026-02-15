@@ -1,7 +1,7 @@
 {
   "name": "distordia_social",
   "displayName": "Distordia Social",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "targetWalletVersion": "3.1.5",
   "description": "On-chain discussion forum for the Nexus blockchain. Post, quote, reply, and read text openly with verification tier badges.",
   "type": "app",

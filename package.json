@@ -1,6 +1,6 @@
 {
   "name": "distordia_social",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Distordia Social - On-chain discussion forum for the Nexus blockchain",
   "devDependencies": {
     "@babel/core": "^7.24.9",
