@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { apiCall } from 'nexus-module';
+import { apiCall, confirm } from 'nexus-module';
 import { switchExtNamespace } from 'actions/actionCreators';
+import { sendTip } from 'actions/createAsset';
 import {
   fetchAllVerified,
   getTierForGenesis,
@@ -25,6 +26,7 @@ import {
   BadgeRow,
   BadgeOfficial,
   BadgeArticle,
+  BadgeComment,
   TierBadgeL1,
   TierBadgeL2,
   TierBadgeL3,
@@ -33,12 +35,14 @@ import {
   FilterLabel,
   SmallButton,
   PrimaryButton,
+  TipButton,
   LoadingContainer,
   Spinner,
   EmptyState,
   ErrorMessage,
   ArticleCard,
   ArticleTitle,
+  ArticleAbstract,
   ArticlePreview,
   ReadMoreLink,
   ArticleFullText,
@@ -48,6 +52,10 @@ import {
   ModalBody,
   ModalClose,
   JsonBlock,
+  TipSection,
+  TipAmountInput,
+  TipLabel,
+  TipAccountDisplay,
 } from '../components/styles';
 
 function TierBadge({ tier }) {
@@ -63,7 +71,7 @@ function TierBadge({ tier }) {
   }
 }
 
-export default function NamespaceFeed() {
+export default function AuthorFeed() {
   const extNamespace = useSelector(
     (state) => state.settings.namespaces.extNamespace
   );
@@ -82,14 +90,18 @@ export default function NamespaceFeed() {
   const [articleFullText, setArticleFullText] = useState(null);
   const [articleLoading, setArticleLoading] = useState(false);
 
-  const fetchNamespacePosts = useCallback(async (namespace) => {
+  // Tipping state
+  const [tipAmount, setTipAmount] = useState('1');
+  const [tipping, setTipping] = useState(false);
+
+  const fetchAuthorContent = useCallback(async (namespace) => {
     if (!namespace) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      // Fetch both posts and articles in parallel
+      // Fetch both comments and articles in parallel
       const [postResults, articleResults] = await Promise.all([
         apiCall('register/list/assets:asset', {
           where:
@@ -117,7 +129,7 @@ export default function NamespaceFeed() {
       const verified = await fetchAllVerified();
       setVerifiedMap(verified);
     } catch (err) {
-      setError(err?.message || 'Failed to load posts');
+      setError(err?.message || 'Failed to load content');
       setPosts([]);
     } finally {
       setLoading(false);
@@ -126,9 +138,9 @@ export default function NamespaceFeed() {
 
   useEffect(() => {
     if (extNamespace) {
-      fetchNamespacePosts(extNamespace);
+      fetchAuthorContent(extNamespace);
     }
-  }, [extNamespace, fetchNamespacePosts]);
+  }, [extNamespace, fetchAuthorContent]);
 
   const handleSearch = () => {
     if (nsInput.trim()) {
@@ -157,6 +169,7 @@ export default function NamespaceFeed() {
     setReadingArticle(post);
     setArticleFullText(null);
     setArticleLoading(true);
+    setTipAmount('1');
     try {
       const fullText = await reassembleArticle(post);
       setArticleFullText(fullText);
@@ -167,16 +180,48 @@ export default function NamespaceFeed() {
     }
   };
 
+  // Send tip to article author
+  const handleSendTip = async () => {
+    if (!readingArticle || tipping) return;
+
+    const tipAccountAddr = readingArticle['tip-account'];
+    if (!tipAccountAddr) return;
+
+    const amount = parseFloat(tipAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const confirmed = await confirm({
+      question: `Send ${amount} NXS tip to this author?`,
+      note: `This will debit ${amount} NXS from your default account to the author's tip account.`,
+    });
+
+    if (!confirmed) return;
+
+    setTipping(true);
+    try {
+      await sendTip({
+        from: 'default',
+        to: tipAccountAddr,
+        amount: amount,
+        articleAddress: readingArticle.address,
+      });
+    } catch {
+      // Error already shown by sendTip
+    } finally {
+      setTipping(false);
+    }
+  };
+
   return (
     <PageLayout>
       <FilterBar>
         <FilterGroup>
-          <FilterLabel>Namespace:</FilterLabel>
+          <FilterLabel>Author:</FilterLabel>
           <SearchField
             value={nsInput}
             onChange={(e) => setNsInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Enter namespace..."
+            placeholder="Enter author namespace..."
           />
         </FilterGroup>
         <PrimaryButton onClick={handleSearch} disabled={loading}>
@@ -187,7 +232,7 @@ export default function NamespaceFeed() {
       {extNamespace && (
         <SingleColRow>
           <div style={{ fontSize: 13, opacity: 0.6 }}>
-            Showing posts from namespace:{' '}
+            Showing publications from author:{' '}
             <strong style={{ color: '#00d4ff' }}>{extNamespace}</strong>
           </div>
         </SingleColRow>
@@ -196,14 +241,14 @@ export default function NamespaceFeed() {
       {loading && (
         <LoadingContainer>
           <Spinner />
-          <p>Loading posts from {extNamespace}...</p>
+          <p>Loading publications from {extNamespace}...</p>
         </LoadingContainer>
       )}
 
       {error && <ErrorMessage>{error}</ErrorMessage>}
 
       {!loading && !error && posts.length === 0 && extNamespace && (
-        <EmptyState>No posts found from namespace "{extNamespace}"</EmptyState>
+        <EmptyState>No publications found from author "{extNamespace}"</EmptyState>
       )}
 
       {!loading &&
@@ -215,7 +260,9 @@ export default function NamespaceFeed() {
           if (isArticle(post)) {
             const text = post.text || '';
             const title = post.title || 'Untitled Article';
+            const abstract = post.abstract || '';
             const hasMore = !!(post.next && post.next !== '');
+            const hasTipAccount = !!(post['tip-account'] && post['tip-account'] !== '');
             const previewText = text.length > 200 ? text.slice(0, 200) + '...' : text;
 
             return (
@@ -230,12 +277,16 @@ export default function NamespaceFeed() {
                   <BadgeRow>
                     {tier && <TierBadge tier={tier} />}
                     <BadgeArticle>Article</BadgeArticle>
+                    {hasTipAccount && (
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>Tips enabled</span>
+                    )}
                     {post['distordia-status'] === 'official' && (
                       <BadgeOfficial>Official</BadgeOfficial>
                     )}
                   </BadgeRow>
                 </PostHeader>
                 <ArticleTitle>{title}</ArticleTitle>
+                {abstract && <ArticleAbstract>{abstract}</ArticleAbstract>}
                 <ArticlePreview>{previewText}</ArticlePreview>
                 {hasMore && (
                   <ReadMoreLink onClick={(e) => { e.stopPropagation(); readArticle(post); }}>
@@ -273,6 +324,7 @@ export default function NamespaceFeed() {
                 </PostAuthor>
                 <BadgeRow>
                   {tier && <TierBadge tier={tier} />}
+                  <BadgeComment>Comment</BadgeComment>
                   {post['distordia-status'] === 'official' && (
                     <BadgeOfficial>Official</BadgeOfficial>
                   )}
@@ -315,8 +367,25 @@ export default function NamespaceFeed() {
                   @{readingArticle["Creator's namespace"] ||
                     formatAddress(readingArticle.owner, 12)}
                 </span>
-                {' '}· {formatTime(readingArticle.created)}
+                {' '}&middot; {formatTime(readingArticle.created)}
               </div>
+
+              {readingArticle.abstract && (
+                <div style={{
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  fontStyle: 'italic',
+                  opacity: 0.85,
+                  padding: '10px 14px',
+                  background: 'rgba(0, 212, 255, 0.04)',
+                  borderLeft: '2px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 4,
+                  marginBottom: 16,
+                }}>
+                  {readingArticle.abstract}
+                </div>
+              )}
+
               {articleLoading ? (
                 <LoadingContainer>
                   <Spinner />
@@ -324,6 +393,31 @@ export default function NamespaceFeed() {
                 </LoadingContainer>
               ) : (
                 <ArticleFullText>{articleFullText}</ArticleFullText>
+              )}
+
+              {/* Tipping Section */}
+              {readingArticle['tip-account'] && readingArticle['tip-account'] !== '' && (
+                <TipSection>
+                  <TipLabel>Tip the author:</TipLabel>
+                  <TipAmountInput
+                    type="number"
+                    min="0.01"
+                    step="0.1"
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(e.target.value)}
+                    placeholder="NXS"
+                  />
+                  <span style={{ fontSize: 12, opacity: 0.6 }}>NXS</span>
+                  <TipButton
+                    onClick={handleSendTip}
+                    disabled={tipping || !tipAmount || parseFloat(tipAmount) <= 0}
+                  >
+                    {tipping ? 'Sending...' : 'Send Tip'}
+                  </TipButton>
+                  <TipAccountDisplay>
+                    {formatAddress(readingArticle['tip-account'], 20)}
+                  </TipAccountDisplay>
+                </TipSection>
               )}
             </ModalBody>
           </ModalContent>

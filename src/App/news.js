@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { apiCall } from 'nexus-module';
+import { apiCall, confirm } from 'nexus-module';
 import { updateInput, setQuote, setReplyTo } from 'actions/actionCreators';
+import { sendTip } from 'actions/createAsset';
 import {
   fetchAllVerified,
   getTierForGenesis,
@@ -30,6 +31,7 @@ import {
   BadgeQuote,
   BadgeReply,
   BadgeArticle,
+  BadgeComment,
   TierBadgeL1,
   TierBadgeL2,
   TierBadgeL3,
@@ -39,6 +41,7 @@ import {
   FilterSelect,
   CheckboxLabel,
   SmallButton,
+  TipButton,
   LoadingContainer,
   Spinner,
   EmptyState,
@@ -46,6 +49,7 @@ import {
   ContentWarning,
   ArticleCard,
   ArticleTitle,
+  ArticleAbstract,
   ArticlePreview,
   ReadMoreLink,
   ArticleFullText,
@@ -55,6 +59,10 @@ import {
   ModalBody,
   ModalClose,
   JsonBlock,
+  TipSection,
+  TipAmountInput,
+  TipLabel,
+  TipAccountDisplay,
 } from '../components/styles';
 
 import ComposePost from './ComposePost';
@@ -88,10 +96,12 @@ function ArticleItem({
   const owner = post.owner || '';
   const text = post.text || '';
   const title = post.title || 'Untitled Article';
+  const abstract = post.abstract || '';
   const created = post.created;
   const isOfficial = post['distordia-status'] === 'official';
   const hasCW = !!post.cw;
   const hasMore = !!(post.next && post.next !== '');
+  const hasTipAccount = !!(post['tip-account'] && post['tip-account'] !== '');
   const tier = getTierForGenesis(owner, verifiedMap);
   const previewText = text.length > 200 ? text.slice(0, 200) + '...' : text;
 
@@ -105,6 +115,9 @@ function ArticleItem({
         <BadgeRow>
           {tier && <TierBadge tier={tier} />}
           <BadgeArticle>Article</BadgeArticle>
+          {hasTipAccount && (
+            <span style={{ fontSize: 10, opacity: 0.6 }}>Tips enabled</span>
+          )}
           {isOfficial && <BadgeOfficial>Official</BadgeOfficial>}
         </BadgeRow>
       </PostHeader>
@@ -116,6 +129,7 @@ function ArticleItem({
       ) : (
         <>
           <ArticleTitle>{title}</ArticleTitle>
+          {abstract && <ArticleAbstract>{abstract}</ArticleAbstract>}
           <ArticlePreview>{previewText}</ArticlePreview>
           {hasMore && (
             <ReadMoreLink onClick={(e) => { e.stopPropagation(); onReadArticle(post); }}>
@@ -145,7 +159,7 @@ function ArticleItem({
               onQuote(post);
             }}
           >
-            Quote
+            Cite
           </SmallButton>
           <SmallButton
             onClick={(e) => {
@@ -161,7 +175,7 @@ function ArticleItem({
   );
 }
 
-function PostItem({
+function CommentItem({
   post,
   verifiedMap,
   quotedPostsCache,
@@ -197,8 +211,9 @@ function PostItem({
         </PostAuthor>
         <BadgeRow>
           {tier && <TierBadge tier={tier} />}
+          <BadgeComment>Comment</BadgeComment>
           {isOfficial && <BadgeOfficial>Official</BadgeOfficial>}
-          {isQuote && <BadgeQuote>Quote</BadgeQuote>}
+          {isQuote && <BadgeQuote>Citation</BadgeQuote>}
           {isReply && <BadgeReply>Reply</BadgeReply>}
         </BadgeRow>
       </PostHeader>
@@ -227,7 +242,7 @@ function PostItem({
             )}
           </QuotedAuthor>
           <QuotedText>
-            {quotedPost.text || quotedPost.Text || 'Post not found'}
+            {quotedPost.text || quotedPost.Text || 'Content not found'}
           </QuotedText>
         </QuotedPost>
       )}
@@ -235,7 +250,7 @@ function PostItem({
       {isQuote && !quotedPost && quoteAddr && (
         <QuotedPost>
           <QuotedText style={{ opacity: 0.5, fontStyle: 'italic' }}>
-            Quoted post could not be loaded
+            Cited content could not be loaded
           </QuotedText>
         </QuotedPost>
       )}
@@ -260,7 +275,7 @@ function PostItem({
               onQuote(post);
             }}
           >
-            Quote
+            Cite
           </SmallButton>
           <SmallButton
             onClick={(e) => {
@@ -276,7 +291,7 @@ function PostItem({
   );
 }
 
-export default function NewsFeed() {
+export default function ResearchFeed() {
   const inputValue = useSelector((state) => state.ui.inputValue);
   const dispatch = useDispatch();
 
@@ -294,6 +309,10 @@ export default function NewsFeed() {
   const [readingArticle, setReadingArticle] = useState(null);
   const [articleFullText, setArticleFullText] = useState(null);
   const [articleLoading, setArticleLoading] = useState(false);
+
+  // Tipping state
+  const [tipAmount, setTipAmount] = useState('1');
+  const [tipping, setTipping] = useState(false);
 
   const fetchPosts = useCallback(async () => {
     setLoading(true);
@@ -349,7 +368,7 @@ export default function NewsFeed() {
               cache[address] = result;
             }
           } catch {
-            // Quoted post not found
+            // Quoted content not found
           }
         })
       );
@@ -360,7 +379,7 @@ export default function NewsFeed() {
       const verified = await fetchAllVerified();
       setVerifiedMap(verified);
     } catch (err) {
-      setError(err?.message || 'Failed to load posts from blockchain');
+      setError(err?.message || 'Failed to load content from blockchain');
     } finally {
       setLoading(false);
     }
@@ -374,7 +393,7 @@ export default function NewsFeed() {
     dispatch(updateInput(e.target.value));
   };
 
-  // Filter posts (exclude article chunks which are internal)
+  // Filter posts
   const filteredPosts = posts.filter((post) => {
     const namespace = post["Creator's namespace"] || '';
 
@@ -389,6 +408,9 @@ export default function NewsFeed() {
       const tier = getTierForGenesis(post.owner, verifiedMap);
       if (!tier) return false;
     }
+    if (filter === 'articles') {
+      if (!isArticle(post)) return false;
+    }
     if (filter === 'namespace' && inputValue) {
       if (!namespace.toLowerCase().includes(inputValue.toLowerCase())) {
         return false;
@@ -398,9 +420,10 @@ export default function NewsFeed() {
     if (inputValue && filter !== 'namespace') {
       const text = (post.text || post.Text || '').toLowerCase();
       const title = (post.title || '').toLowerCase();
+      const abstract = (post.abstract || '').toLowerCase();
       const ns = namespace.toLowerCase();
       const q = inputValue.toLowerCase();
-      if (!text.includes(q) && !ns.includes(q) && !title.includes(q)) {
+      if (!text.includes(q) && !ns.includes(q) && !title.includes(q) && !abstract.includes(q)) {
         return false;
       }
     }
@@ -425,6 +448,7 @@ export default function NewsFeed() {
     setReadingArticle(post);
     setArticleFullText(null);
     setArticleLoading(true);
+    setTipAmount('1');
     try {
       const fullText = await reassembleArticle(post);
       setArticleFullText(fullText);
@@ -432,6 +456,38 @@ export default function NewsFeed() {
       setArticleFullText(post.text || '');
     } finally {
       setArticleLoading(false);
+    }
+  };
+
+  // Send tip to article author
+  const handleSendTip = async () => {
+    if (!readingArticle || tipping) return;
+
+    const tipAccountAddr = readingArticle['tip-account'];
+    if (!tipAccountAddr) return;
+
+    const amount = parseFloat(tipAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const confirmed = await confirm({
+      question: `Send ${amount} NXS tip to this author?`,
+      note: `This will debit ${amount} NXS from your default account to the author's tip account.`,
+    });
+
+    if (!confirmed) return;
+
+    setTipping(true);
+    try {
+      await sendTip({
+        from: 'default',
+        to: tipAccountAddr,
+        amount: amount,
+        articleAddress: readingArticle.address,
+      });
+    } catch {
+      // Error already shown by sendTip
+    } finally {
+      setTipping(false);
     }
   };
 
@@ -454,16 +510,17 @@ export default function NewsFeed() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           >
-            <option value="all">All Posts</option>
+            <option value="all">All Content</option>
+            <option value="articles">Articles Only</option>
             <option value="official">Official Only</option>
             <option value="verified">Verified Only</option>
-            <option value="namespace">By Namespace</option>
+            <option value="namespace">By Author</option>
           </FilterSelect>
           {filter === 'namespace' && (
             <SearchField
               value={inputValue}
               onChange={handleChange}
-              placeholder="Search namespace..."
+              placeholder="Search author..."
             />
           )}
         </FilterGroup>
@@ -485,7 +542,7 @@ export default function NewsFeed() {
           <SearchField
             value={inputValue}
             onChange={handleChange}
-            placeholder="Search posts..."
+            placeholder="Search articles and comments..."
           />
         </SingleColRow>
       )}
@@ -493,14 +550,14 @@ export default function NewsFeed() {
       {loading && (
         <LoadingContainer>
           <Spinner />
-          <p>Loading posts from blockchain...</p>
+          <p>Loading research content from blockchain...</p>
         </LoadingContainer>
       )}
 
       {error && <ErrorMessage>{error}</ErrorMessage>}
 
       {!loading && !error && filteredPosts.length === 0 && (
-        <EmptyState>No posts found. Be the first to post!</EmptyState>
+        <EmptyState>No content found. Publish the first article!</EmptyState>
       )}
 
       {!loading &&
@@ -516,7 +573,7 @@ export default function NewsFeed() {
               onReadArticle={readArticle}
             />
           ) : (
-            <PostItem
+            <CommentItem
               key={post.address}
               post={post}
               verifiedMap={verifiedMap}
@@ -545,8 +602,28 @@ export default function NewsFeed() {
                   @{readingArticle["Creator's namespace"] ||
                     formatAddress(readingArticle.owner, 12)}
                 </span>
-                {' '}· {formatTime(readingArticle.created)}
+                {' '}&middot; {formatTime(readingArticle.created)}
+                {readingArticle.tags && (
+                  <span> &middot; #{readingArticle.tags.split(',')[0]}</span>
+                )}
               </div>
+
+              {readingArticle.abstract && (
+                <div style={{
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  fontStyle: 'italic',
+                  opacity: 0.85,
+                  padding: '10px 14px',
+                  background: 'rgba(0, 212, 255, 0.04)',
+                  borderLeft: '2px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 4,
+                  marginBottom: 16,
+                }}>
+                  {readingArticle.abstract}
+                </div>
+              )}
+
               {articleLoading ? (
                 <LoadingContainer>
                   <Spinner />
@@ -554,6 +631,31 @@ export default function NewsFeed() {
                 </LoadingContainer>
               ) : (
                 <ArticleFullText>{articleFullText}</ArticleFullText>
+              )}
+
+              {/* Tipping Section */}
+              {readingArticle['tip-account'] && readingArticle['tip-account'] !== '' && (
+                <TipSection>
+                  <TipLabel>Tip the author:</TipLabel>
+                  <TipAmountInput
+                    type="number"
+                    min="0.01"
+                    step="0.1"
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(e.target.value)}
+                    placeholder="NXS"
+                  />
+                  <span style={{ fontSize: 12, opacity: 0.6 }}>NXS</span>
+                  <TipButton
+                    onClick={handleSendTip}
+                    disabled={tipping || !tipAmount || parseFloat(tipAmount) <= 0}
+                  >
+                    {tipping ? 'Sending...' : 'Send Tip'}
+                  </TipButton>
+                  <TipAccountDisplay>
+                    {formatAddress(readingArticle['tip-account'], 20)}
+                  </TipAccountDisplay>
+                </TipSection>
               )}
             </ModalBody>
           </ModalContent>

@@ -8,13 +8,13 @@ import {
 } from '../utils/articleUtils';
 
 /**
- * Create a social post asset following the Distordia Social Post Standard.
- * Uses JSON format with proper field definitions per social-standard.json.
+ * Create a short comment asset (formerly "post").
+ * Uses JSON format with proper field definitions.
  *
- * @param {Object} postData - The post data
- * @param {string} postData.text - Post content (max 512 chars)
+ * @param {Object} postData - The comment data
+ * @param {string} postData.text - Comment content (max 512 chars)
  * @param {string} [postData.replyTo] - Address of post being replied to
- * @param {string} [postData.quote] - Address of post being quoted
+ * @param {string} [postData.quote] - Address of post being quoted/cited
  * @param {string} [postData.cw] - Content warning text
  * @param {Function} [onSuccess] - Success callback
  * @param {Function} [onError] - Error callback
@@ -23,21 +23,20 @@ export const createPost = async (postData, onSuccess = () => {}, onError = () =>
   try {
     if (!postData.text || !postData.text.trim()) {
       showErrorDialog({
-        message: 'Post cannot be empty',
-        note: 'Please enter some text for your post.',
+        message: 'Comment cannot be empty',
+        note: 'Please enter some text for your comment.',
       });
       return;
     }
 
     if (postData.text.length > 512) {
       showErrorDialog({
-        message: 'Post too long',
+        message: 'Comment too long',
         note: 'Maximum 512 characters allowed.',
       });
       return;
     }
 
-    // Build JSON fields per Distordia Social Post Standard
     const json = [
       {
         name: 'distordia-type',
@@ -110,15 +109,15 @@ export const createPost = async (postData, onSuccess = () => {}, onError = () =>
     });
 
     showSuccessDialog({
-      message: 'Post Published',
-      note: `Your post is now on-chain. TX: ${result.txid?.slice(0, 16)}...`,
+      message: 'Comment Published',
+      note: `Your comment is now on-chain. TX: ${result.txid?.slice(0, 16)}...`,
     });
 
     onSuccess(result);
     return result;
   } catch (error) {
     showErrorDialog({
-      message: 'Failed to create post',
+      message: 'Failed to create comment',
       note: error?.message || 'Unknown error',
     });
 
@@ -128,25 +127,26 @@ export const createPost = async (postData, onSuccess = () => {}, onError = () =>
 };
 
 /**
- * Create a long-form article as a linked chain of on-chain assets.
+ * Create a long-form research article as a linked chain of on-chain assets.
  *
  * The article is split into chunks that each fit within the Nexus 1KB register
  * limit. A root asset (distordia-article) holds metadata and the first text
  * chunk, while continuation assets (distordia-article-chunk) each hold
- * subsequent text and a `next` pointer to the following chunk, forming a
- * singly-linked list.
+ * subsequent text and a `next` pointer to the following chunk.
  *
- * Chunks are created in reverse order (last chunk first) so each chunk
- * can reference the address of the next one.
+ * The root article includes a `tip-account` field so readers can send NXS
+ * tips to the author's receiving account.
  *
  * @param {Object} articleData
- * @param {string} articleData.title - Article title (max 64 chars)
- * @param {string} articleData.text  - Full article text (max MAX_ARTICLE_CHARS)
- * @param {string} [articleData.replyTo] - Address of post being replied to
- * @param {string} [articleData.quote]   - Address of post being quoted
- * @param {string} [articleData.cw]      - Content warning text
- * @param {string} [articleData.tags]    - Tags
- * @param {Function} [onProgress] - Called with (createdCount, totalCount) after each asset
+ * @param {string} articleData.title    - Article title (max 64 chars)
+ * @param {string} articleData.text     - Full article text (max MAX_ARTICLE_CHARS)
+ * @param {string} [articleData.abstract] - Article abstract/summary (max 200 chars)
+ * @param {string} [articleData.replyTo]  - Address of article being replied to
+ * @param {string} [articleData.quote]    - Address of article being cited
+ * @param {string} [articleData.cw]       - Content warning text
+ * @param {string} [articleData.tags]     - Tags
+ * @param {string} [articleData.tipAccount] - NXS account address for receiving tips
+ * @param {Function} [onProgress] - Called with (createdCount, totalCount)
  * @param {Function} [onSuccess]  - Success callback
  * @param {Function} [onError]    - Error callback
  */
@@ -193,7 +193,6 @@ export const createArticle = async (
     const totalAssets = chunks.length;
 
     // Create chunk assets in reverse order so each can reference the next.
-    // The last chunk has next = "" (end of chain).
     let nextAddress = '';
     const chunkResults = [];
 
@@ -263,6 +262,13 @@ export const createArticle = async (
         maxlength: 64,
       },
       {
+        name: 'abstract',
+        type: 'string',
+        value: articleData.abstract || '',
+        mutable: false,
+        maxlength: 200,
+      },
+      {
         name: 'text',
         type: 'string',
         value: chunks[0],
@@ -311,6 +317,13 @@ export const createArticle = async (
         mutable: false,
         maxlength: 64,
       },
+      {
+        name: 'tip-account',
+        type: 'string',
+        value: articleData.tipAccount || '',
+        mutable: true,
+        maxlength: 128,
+      },
     ];
 
     const rootResult = await secureApiCall('assets/create/asset', {
@@ -332,6 +345,69 @@ export const createArticle = async (
     showErrorDialog({
       message: 'Failed to create article',
       note: error?.message || 'Unknown error',
+    });
+
+    onError(error);
+    throw error;
+  }
+};
+
+/**
+ * Send a NXS tip to an article author.
+ *
+ * Uses finance/debit/account to send NXS from the tipper's account
+ * to the article creator's tip-account address.
+ *
+ * @param {Object} tipData
+ * @param {string} tipData.from    - Sender's NXS account address or name
+ * @param {string} tipData.to      - Recipient's tip account address (from article asset)
+ * @param {number} tipData.amount  - Amount of NXS to tip
+ * @param {string} [tipData.articleAddress] - Article asset address for reference
+ * @param {Function} [onSuccess] - Success callback
+ * @param {Function} [onError]   - Error callback
+ */
+export const sendTip = async (tipData, onSuccess = () => {}, onError = () => {}) => {
+  try {
+    if (!tipData.to) {
+      showErrorDialog({
+        message: 'No tip account',
+        note: 'This article does not have a tip account configured.',
+      });
+      return;
+    }
+
+    if (!tipData.amount || tipData.amount <= 0) {
+      showErrorDialog({
+        message: 'Invalid amount',
+        note: 'Please enter a valid tip amount.',
+      });
+      return;
+    }
+
+    const params = {
+      from: tipData.from,
+      to: tipData.to,
+      amount: tipData.amount,
+    };
+
+    // Use the article address as a reference so the author can trace it
+    if (tipData.articleAddress) {
+      params.reference = tipData.articleAddress;
+    }
+
+    const result = await secureApiCall('finance/debit/account', params);
+
+    showSuccessDialog({
+      message: 'Tip Sent!',
+      note: `You sent ${tipData.amount} NXS to the author. TX: ${result.txid?.slice(0, 16)}...`,
+    });
+
+    onSuccess(result);
+    return result;
+  } catch (error) {
+    showErrorDialog({
+      message: 'Failed to send tip',
+      note: error?.message || 'Unknown error. Make sure you have sufficient NXS balance.',
     });
 
     onError(error);

@@ -2,6 +2,10 @@
 
 State machine diagrams for all core flows in the Distordia Social module, aligned with the [Nexus API](../Nexus%20API%20docs/PROTOCOL.MD) documentation.
 
+Related economics documentation:
+- [Economic Incentive State Machines](./economic-incentives-state-machines.md)
+- [Economic Incentive Improvements](./economic-incentives-improvements.md)
+
 ---
 
 ## 1. Application Navigation
