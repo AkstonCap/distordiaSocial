@@ -1,8 +1,8 @@
 import { useSelector, useDispatch } from 'react-redux';
 import { Panel, HorizontalTab } from 'nexus-module';
 
-import NewsFeed from './news';
-import NamespaceFeed from './namespace';
+import ResearchFeed from './news';
+import AuthorFeed from './namespace';
 import Profile from './profile';
 import { switchTab } from '../actions/actionCreators';
 
@@ -15,11 +15,11 @@ export default function Main() {
   };
 
   return (
-    <Panel 
+    <Panel
       title={
         <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <img src="social-logo.svg" alt="" style={{ width: '28px', height: '28px' }} />
-          <span style={{ 
+          <span style={{
             background: 'linear-gradient(135deg, #ef4568 0%, #f0aa21 100%)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
@@ -28,7 +28,7 @@ export default function Main() {
             fontSize: '1.1em',
             letterSpacing: '0.5px',
             textShadow: '0 0 20px rgba(240, 170, 33, 0.3)'
-          }}>Distordia Social</span>
+          }}>Distordia Research</span>
         </span>
       }>
       <div className="text-center">
@@ -37,25 +37,25 @@ export default function Main() {
             active={activeTab === 'NewsFeed'}
             onClick={() => handleSwitchTab('NewsFeed')}
           >
-            Social Feed
+            Research Feed
           </HorizontalTab>
           <HorizontalTab
             active={activeTab === 'NamespaceFeed'}
             onClick={() => handleSwitchTab('NamespaceFeed')}
           >
-            Namespace Feed
+            Author Feed
           </HorizontalTab>
           <HorizontalTab
             active={activeTab === 'Profile'}
             onClick={() => handleSwitchTab('Profile')}
           >
-            My Profile
+            My Publications
           </HorizontalTab>
         </HorizontalTab.TabBar>
       </div>
 
-      <div>{activeTab === 'NewsFeed' && <NewsFeed />}</div>
-      <div>{activeTab === 'NamespaceFeed' && <NamespaceFeed />}</div>
+      <div>{activeTab === 'NewsFeed' && <ResearchFeed />}</div>
+      <div>{activeTab === 'NamespaceFeed' && <AuthorFeed />}</div>
       <div>{activeTab === 'Profile' && <Profile />}</div>
     </Panel>
   );

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { apiCall } from 'nexus-module';
+import { apiCall, confirm } from 'nexus-module';
 import { switchMyNamespace } from 'actions/actionCreators';
+import { sendTip } from 'actions/createAsset';
 import {
   fetchAllVerified,
   getTierForGenesis,
@@ -29,16 +30,19 @@ import {
   BadgeRow,
   BadgeOfficial,
   BadgeArticle,
+  BadgeComment,
   TierBadgeL1,
   TierBadgeL2,
   TierBadgeL3,
   SmallButton,
+  TipButton,
   LoadingContainer,
   Spinner,
   EmptyState,
   ErrorMessage,
   ArticleCard,
   ArticleTitle,
+  ArticleAbstract,
   ArticlePreview,
   ReadMoreLink,
   ArticleFullText,
@@ -48,6 +52,10 @@ import {
   ModalBody,
   ModalClose,
   JsonBlock,
+  TipSection,
+  TipAmountInput,
+  TipLabel,
+  TipAccountDisplay,
 } from '../components/styles';
 
 function TierBadge({ tier }) {
@@ -82,12 +90,16 @@ export default function Profile() {
   const [articleFullText, setArticleFullText] = useState(null);
   const [articleLoading, setArticleLoading] = useState(false);
 
+  // Tipping state
+  const [tipAmount, setTipAmount] = useState('1');
+  const [tipping, setTipping] = useState(false);
+
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Get user's own assets (posts they own)
+      // Get user's own assets (publications they own)
       const [assets, verified] = await Promise.all([
         apiCall('assets/list/asset').catch(() => []),
         fetchAllVerified(),
@@ -96,7 +108,7 @@ export default function Profile() {
       setVerifiedMap(verified);
 
       if (assets && Array.isArray(assets)) {
-        // Show posts and articles, but filter out article chunks
+        // Show articles and comments, but filter out article chunks
         const posts = assets.filter(
           (item) =>
             (item['distordia-type'] === 'distordia-post' ||
@@ -106,23 +118,29 @@ export default function Profile() {
         posts.sort((a, b) => (b.created || 0) - (a.created || 0));
         setMyPosts(posts);
 
-        // Extract profile info from the first post or wallet data
+        // Extract profile info from the first item or wallet data
         if (posts.length > 0) {
           const first = posts[0];
           const namespace = first["Creator's namespace"] || first.name?.split(':')[0] || '';
           if (namespace && namespace !== myNamespace) {
             dispatch(switchMyNamespace(namespace));
           }
+          const articleCount = posts.filter((p) => isArticle(p)).length;
+          const commentCount = posts.length - articleCount;
           setProfileInfo({
             namespace: namespace || myNamespace || '',
             owner: first.owner || '',
-            postCount: posts.length,
+            totalCount: posts.length,
+            articleCount,
+            commentCount,
           });
         } else {
           setProfileInfo({
             namespace: myNamespace || '',
             owner: '',
-            postCount: 0,
+            totalCount: 0,
+            articleCount: 0,
+            commentCount: 0,
           });
         }
       }
@@ -152,6 +170,7 @@ export default function Profile() {
     setReadingArticle(post);
     setArticleFullText(null);
     setArticleLoading(true);
+    setTipAmount('1');
     try {
       const fullText = await reassembleArticle(post);
       setArticleFullText(fullText);
@@ -159,6 +178,38 @@ export default function Profile() {
       setArticleFullText(post.text || '');
     } finally {
       setArticleLoading(false);
+    }
+  };
+
+  // Send tip to article author
+  const handleSendTip = async () => {
+    if (!readingArticle || tipping) return;
+
+    const tipAccountAddr = readingArticle['tip-account'];
+    if (!tipAccountAddr) return;
+
+    const amount = parseFloat(tipAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const confirmed = await confirm({
+      question: `Send ${amount} NXS tip to this author?`,
+      note: `This will debit ${amount} NXS from your default account to the author's tip account.`,
+    });
+
+    if (!confirmed) return;
+
+    setTipping(true);
+    try {
+      await sendTip({
+        from: 'default',
+        to: tipAccountAddr,
+        amount: amount,
+        articleAddress: readingArticle.address,
+      });
+    } catch {
+      // Error already shown by sendTip
+    } finally {
+      setTipping(false);
     }
   };
 
@@ -171,7 +222,7 @@ export default function Profile() {
       {loading && (
         <LoadingContainer>
           <Spinner />
-          <p>Loading your profile...</p>
+          <p>Loading your publications...</p>
         </LoadingContainer>
       )}
 
@@ -192,8 +243,12 @@ export default function Profile() {
           )}
           <ProfileStats>
             <ProfileStat>
-              <div className="stat-value">{profileInfo.postCount}</div>
-              <div className="stat-label">Posts</div>
+              <div className="stat-value">{profileInfo.articleCount}</div>
+              <div className="stat-label">Articles</div>
+            </ProfileStat>
+            <ProfileStat>
+              <div className="stat-value">{profileInfo.commentCount}</div>
+              <div className="stat-label">Comments</div>
             </ProfileStat>
           </ProfileStats>
         </ProfileCard>
@@ -202,15 +257,15 @@ export default function Profile() {
       {!loading && (
         <SingleColRow>
           <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.7 }}>
-            Your Posts
+            Your Publications
           </div>
         </SingleColRow>
       )}
 
       {!loading && myPosts.length === 0 && (
         <EmptyState>
-          You haven't created any posts yet. Switch to the Social Feed tab to
-          create your first post!
+          You haven't published any content yet. Switch to the Research Feed tab to
+          publish your first article!
         </EmptyState>
       )}
 
@@ -223,7 +278,9 @@ export default function Profile() {
           if (isArticle(post)) {
             const text = post.text || '';
             const title = post.title || 'Untitled Article';
+            const abstract = post.abstract || '';
             const hasMore = !!(post.next && post.next !== '');
+            const hasTipAccount = !!(post['tip-account'] && post['tip-account'] !== '');
             const previewText = text.length > 200 ? text.slice(0, 200) + '...' : text;
 
             return (
@@ -238,12 +295,16 @@ export default function Profile() {
                   <BadgeRow>
                     {postTier && <TierBadge tier={postTier} />}
                     <BadgeArticle>Article</BadgeArticle>
+                    {hasTipAccount && (
+                      <span style={{ fontSize: 10, opacity: 0.6 }}>Tips enabled</span>
+                    )}
                     {post['distordia-status'] === 'official' && (
                       <BadgeOfficial>Official</BadgeOfficial>
                     )}
                   </BadgeRow>
                 </PostHeader>
                 <ArticleTitle>{title}</ArticleTitle>
+                {abstract && <ArticleAbstract>{abstract}</ArticleAbstract>}
                 <ArticlePreview>{previewText}</ArticlePreview>
                 {hasMore && (
                   <ReadMoreLink onClick={(e) => { e.stopPropagation(); readArticle(post); }}>
@@ -282,6 +343,7 @@ export default function Profile() {
                 </PostAuthor>
                 <BadgeRow>
                   {postTier && <TierBadge tier={postTier} />}
+                  <BadgeComment>Comment</BadgeComment>
                   {post['distordia-status'] === 'official' && (
                     <BadgeOfficial>Official</BadgeOfficial>
                   )}
@@ -325,8 +387,25 @@ export default function Profile() {
                   @{readingArticle["Creator's namespace"] ||
                     formatAddress(readingArticle.owner, 12)}
                 </span>
-                {' '}· {formatTime(readingArticle.created)}
+                {' '}&middot; {formatTime(readingArticle.created)}
               </div>
+
+              {readingArticle.abstract && (
+                <div style={{
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  fontStyle: 'italic',
+                  opacity: 0.85,
+                  padding: '10px 14px',
+                  background: 'rgba(0, 212, 255, 0.04)',
+                  borderLeft: '2px solid rgba(0, 212, 255, 0.3)',
+                  borderRadius: 4,
+                  marginBottom: 16,
+                }}>
+                  {readingArticle.abstract}
+                </div>
+              )}
+
               {articleLoading ? (
                 <LoadingContainer>
                   <Spinner />
@@ -334,6 +413,31 @@ export default function Profile() {
                 </LoadingContainer>
               ) : (
                 <ArticleFullText>{articleFullText}</ArticleFullText>
+              )}
+
+              {/* Tipping Section */}
+              {readingArticle['tip-account'] && readingArticle['tip-account'] !== '' && (
+                <TipSection>
+                  <TipLabel>Tip the author:</TipLabel>
+                  <TipAmountInput
+                    type="number"
+                    min="0.01"
+                    step="0.1"
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(e.target.value)}
+                    placeholder="NXS"
+                  />
+                  <span style={{ fontSize: 12, opacity: 0.6 }}>NXS</span>
+                  <TipButton
+                    onClick={handleSendTip}
+                    disabled={tipping || !tipAmount || parseFloat(tipAmount) <= 0}
+                  >
+                    {tipping ? 'Sending...' : 'Send Tip'}
+                  </TipButton>
+                  <TipAccountDisplay>
+                    {formatAddress(readingArticle['tip-account'], 20)}
+                  </TipAccountDisplay>
+                </TipSection>
               )}
             </ModalBody>
           </ModalContent>

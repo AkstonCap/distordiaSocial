@@ -27,7 +27,7 @@ export const SearchField = styled(TextField)({
 });
 
 // ============================================================================
-// Post Card
+// Post Card (used for comments / short posts)
 // ============================================================================
 
 export const PostCard = styled.div({
@@ -99,7 +99,7 @@ export const PostActions = styled.div({
 });
 
 // ============================================================================
-// Quoted / Reply Post
+// Quoted / Reply / Citation
 // ============================================================================
 
 export const QuotedPost = styled.div({
@@ -168,6 +168,19 @@ export const BadgeReply = styled.span({
   ...baseBadgeStyles,
   background: 'linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%)',
   color: '#fff',
+});
+
+export const BadgeCitation = styled.span({
+  ...baseBadgeStyles,
+  background: 'linear-gradient(135deg, #00d4ff 0%, #0099cc 100%)',
+  color: '#fff',
+});
+
+export const BadgeComment = styled.span({
+  ...baseBadgeStyles,
+  background: 'rgba(255,255,255,0.1)',
+  color: 'rgba(255,255,255,0.7)',
+  border: '1px solid rgba(255,255,255,0.15)',
 });
 
 // ============================================================================
@@ -353,6 +366,31 @@ export const PrimaryButton = styled.button({
   '&:hover': {
     transform: 'translateY(-1px)',
     boxShadow: '0 4px 12px rgba(0, 212, 255, 0.3)',
+  },
+  '&:active': {
+    transform: 'translateY(0)',
+  },
+  '&:disabled': {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+    transform: 'none',
+    boxShadow: 'none',
+  },
+});
+
+export const TipButton = styled.button({
+  padding: '6px 16px',
+  background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
+  border: 'none',
+  borderRadius: 8,
+  color: '#000',
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: 'pointer',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    transform: 'translateY(-1px)',
+    boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)',
   },
   '&:active': {
     transform: 'translateY(0)',
@@ -565,7 +603,7 @@ export const ArticleCard = styled.div({
   background: 'rgba(255,255,255,0.04)',
   border: '1px solid rgba(0, 212, 255, 0.15)',
   borderRadius: 12,
-  padding: '16px 20px',
+  padding: '20px 24px',
   transition: 'box-shadow 0.2s ease, transform 0.15s ease',
   cursor: 'pointer',
   '&:hover': {
@@ -576,10 +614,22 @@ export const ArticleCard = styled.div({
 
 export const ArticleTitle = styled.h3({
   margin: '0 0 8px 0',
-  fontSize: 17,
+  fontSize: 18,
   fontWeight: 700,
   lineHeight: 1.3,
   color: '#fff',
+});
+
+export const ArticleAbstract = styled.div({
+  fontSize: 13,
+  lineHeight: 1.6,
+  opacity: 0.85,
+  fontStyle: 'italic',
+  padding: '8px 12px',
+  background: 'rgba(0, 212, 255, 0.04)',
+  borderLeft: '2px solid rgba(0, 212, 255, 0.3)',
+  borderRadius: 4,
+  marginBottom: 10,
 });
 
 export const ArticlePreview = styled.div({
@@ -604,6 +654,12 @@ export const ReadMoreLink = styled.span({
 export const BadgeArticle = styled.span({
   ...baseBadgeStyles,
   background: 'linear-gradient(135deg, #ef4568 0%, #f0aa21 100%)',
+  color: '#fff',
+});
+
+export const BadgeResearch = styled.span({
+  ...baseBadgeStyles,
+  background: 'linear-gradient(135deg, #1e88e5 0%, #00897b 100%)',
   color: '#fff',
 });
 
@@ -660,6 +716,31 @@ export const TitleInput = styled.input({
   },
 });
 
+export const AbstractInput = styled.textarea({
+  width: '100%',
+  minHeight: 60,
+  padding: '10px 12px',
+  background: 'rgba(0,0,0,0.2)',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 8,
+  color: 'inherit',
+  fontSize: 13,
+  fontFamily: 'inherit',
+  fontStyle: 'italic',
+  resize: 'vertical',
+  outline: 'none',
+  marginBottom: 8,
+  boxSizing: 'border-box',
+  transition: 'border-color 0.2s ease',
+  '&:focus': {
+    borderColor: '#00d4ff',
+  },
+  '&::placeholder': {
+    opacity: 0.4,
+    fontStyle: 'italic',
+  },
+});
+
 export const CostIndicator = styled.span({
   fontSize: 11,
   opacity: 0.5,
@@ -673,7 +754,90 @@ export const ProgressText = styled.div({
   color: '#00d4ff',
 });
 
+// ============================================================================
+// Tip Account / Tipping
+// ============================================================================
+
+export const TipAccountLabel = styled.div({
+  fontSize: 11,
+  fontWeight: 600,
+  opacity: 0.6,
+  marginBottom: 4,
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+});
+
+export const TipAccountInput = styled.input({
+  width: '100%',
+  padding: '8px 12px',
+  background: 'rgba(0,0,0,0.2)',
+  border: '1px solid rgba(255, 215, 0, 0.2)',
+  borderRadius: 8,
+  color: 'inherit',
+  fontSize: 12,
+  fontFamily: "'Courier New', monospace",
+  outline: 'none',
+  boxSizing: 'border-box',
+  transition: 'border-color 0.2s ease',
+  '&:focus': {
+    borderColor: '#ffd700',
+  },
+  '&::placeholder': {
+    opacity: 0.4,
+    fontFamily: 'inherit',
+  },
+});
+
+export const TipSection = styled.div({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '12px 16px',
+  background: 'rgba(255, 215, 0, 0.05)',
+  border: '1px solid rgba(255, 215, 0, 0.15)',
+  borderRadius: 8,
+  marginTop: 16,
+});
+
+export const TipAmountInput = styled.input({
+  width: 80,
+  padding: '6px 10px',
+  background: 'rgba(0,0,0,0.3)',
+  border: '1px solid rgba(255, 215, 0, 0.3)',
+  borderRadius: 6,
+  color: 'inherit',
+  fontSize: 13,
+  fontWeight: 600,
+  outline: 'none',
+  textAlign: 'center',
+  boxSizing: 'border-box',
+  '&:focus': {
+    borderColor: '#ffd700',
+  },
+  '&::placeholder': {
+    opacity: 0.4,
+  },
+});
+
+export const TipLabel = styled.span({
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#ffd700',
+  whiteSpace: 'nowrap',
+});
+
+export const TipAccountDisplay = styled.div({
+  fontSize: 11,
+  opacity: 0.5,
+  fontFamily: "'Courier New', monospace",
+  marginTop: 4,
+  wordBreak: 'break-all',
+});
+
+// ============================================================================
 // Legacy export
+// ============================================================================
+
 export const CatalogueTable = styled.table({
   width: '100%',
   borderCollapse: 'collapse',
